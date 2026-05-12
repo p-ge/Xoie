@@ -1,7 +1,4 @@
-// ========================================================
-//  Platoboost Discord Bot – auto-bypass & key delivery
-// ========================================================
-const { Client, GatewayIntentBits, REST, Routes, SlashCommandBuilder } = require("discord.js");
+const { Client, GatewayIntentBits, REST, Routes, SlashCommandBuilder, EmbedBuilder } = require("discord.js");
 const express = require("express");
 const puppeteer = require("puppeteer-extra");
 const StealthPlugin = require("puppeteer-extra-plugin-stealth");
@@ -11,8 +8,8 @@ const fs = require("fs");
 puppeteer.use(StealthPlugin());
 
 // --------------- Configuration ---------------
-const TOKEN = process.env.DISCORD_TOKEN;
-const CLIENT_ID = process.env.CLIENT_ID;
+const TOKEN = process.env.DISCORD_TOKEN;          // Bot token (Render env)
+const CLIENT_ID = process.env.CLIENT_ID;          // Bot application ID
 const PORT = process.env.PORT || 3000;
 
 let ALLOWED_CHANNEL_ID = null;
@@ -25,33 +22,26 @@ if (fs.existsSync(CHANNEL_FILE)) {
 
 // --------------- Discord Client Setup ---------------
 const client = new Client({
-  intents: [
-    GatewayIntentBits.Guilds,
-    GatewayIntentBits.GuildMessages,
-    GatewayIntentBits.MessageContent,
-  ],
+  intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent],
 });
 
-// --------------- Express Web Server (for Render) ---------------
+// --------------- Express Web Server (Render health check) ---------------
 const app = express();
 app.get("/", (req, res) => res.send("Platoboost bot is online!"));
 app.listen(PORT, () => console.log(`🌐 Web server running on port ${PORT}`));
 
-// --------------- Discord Slash Command Registration ---------------
+// --------------- Slash Command Registration ---------------
 const commands = [
   new SlashCommandBuilder()
     .setName("set_channel")
     .setDescription("Restrict bot to only reply in this channel (admin only)")
-    .addChannelOption(option =>
-      option.setName("channel")
-        .setDescription("The channel to allow")
-        .setRequired(true)
+    .addChannelOption((option) =>
+      option.setName("channel").setDescription("The channel to allow").setRequired(true)
     )
     .setDefaultMemberPermissions(0),
 ];
 
 const rest = new REST({ version: "10" }).setToken(TOKEN);
-
 (async () => {
   try {
     console.log("Registering slash commands...");
@@ -62,7 +52,7 @@ const rest = new REST({ version: "10" }).setToken(TOKEN);
   }
 })();
 
-// --------------- Platoboost Bypass Logic ---------------
+// --------------- Platoboost Bypass ---------------
 async function bypassPlatoboost(page) {
   const url = page.url();
 
@@ -72,7 +62,6 @@ async function bypassPlatoboost(page) {
       console.log("Appending bypass token →", newUrl);
       await page.goto(newUrl, { waitUntil: "networkidle2", timeout: 30000 });
     }
-
     await page.evaluate(() => {
       const el = document.getElementById("dontfoid");
       if (el) el.remove();
@@ -95,25 +84,16 @@ async function bypassPlatoboost(page) {
 
 async function extractKey(page) {
   const body = await page.evaluate(() => document.body.innerText);
-
   const freeMatch = body.match(/FREE_[a-f0-9]{32}/i);
   if (freeMatch) return freeMatch[0];
-
   const tokenMatch = body.match(/\b[A-Za-z0-9+/=]{40,}\b/);
   if (tokenMatch) return tokenMatch[0];
-
   throw new Error("No key found on page.");
 }
 
 async function fetchKeyFromLink(link) {
   const browser = await puppeteer.launch({
-    args: [
-      ...chromium.args,
-      "--no-sandbox",
-      "--disable-setuid-sandbox",
-      "--disable-dev-shm-usage",
-      "--disable-gpu",
-    ],
+    args: [...chromium.args, "--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage", "--disable-gpu"],
     defaultViewport: { width: 1366, height: 768 },
     executablePath: await chromium.executablePath(),
     headless: chromium.headless,
@@ -149,12 +129,11 @@ async function fetchKeyFromLink(link) {
   }
 }
 
-// --------------- Message Handling ---------------
+// --------------- Message Handler ---------------
 let isProcessing = false;
 
 client.on("messageCreate", async (message) => {
   if (message.author.bot || !message.content) return;
-
   if (ALLOWED_CHANNEL_ID && message.channel.id !== ALLOWED_CHANNEL_ID) return;
 
   const linkRegex = /https?:\/\/auth\.platorelay\.com\/a\?d=[^\s]+/gi;
@@ -164,42 +143,72 @@ client.on("messageCreate", async (message) => {
   if (isProcessing) {
     return message.reply("⏳ A bypass is already in progress, please wait.");
   }
-
   isProcessing = true;
-  const statusMsg = await message.reply("🔍 Bypassing Platoboost...");
+
+  // ----- YELLOW EMBED – In Progress -----
+  const statusEmbed = new EmbedBuilder()
+    .setColor(0xf1c40f) // yellow
+    .setTitle("🔍 Bypassing Platoboost...")
+    .setDescription("Attempting to extract the key. Please wait.")
+    .setFooter({ text: "Platoboost Bypass Bot" })
+    .setTimestamp();
+
+  const statusMsg = await message.channel.send({ embeds: [statusEmbed] });
 
   try {
     const key = await fetchKeyFromLink(links[0]);
-    await message.channel.send(`🎉 **Your Key:** \`\`\`${key}\`\`\``);
-    await statusMsg.delete().catch(() => {});
+
+    // ----- GREEN EMBED – Success -----
+    const successEmbed = new EmbedBuilder()
+      .setColor(0x2ecc71) // green
+      .setTitle("✅ Done Bypass")
+      .addFields(
+        {
+          name: "📱 Mobile Copy",
+          value: `\`\`${key}\`\``,
+          inline: false,
+        },
+        {
+          name: "💻 PC Copy",
+          value: `\`\`\`${key}\`\`\``,
+          inline: false,
+        }
+      )
+      .setFooter({ text: "Platoboost Bypass Bot" })
+      .setTimestamp();
+
+    await statusMsg.edit({ embeds: [successEmbed] });
   } catch (err) {
-    console.error("Bypass failed:", err);
-    await statusMsg.edit("❌ Failed to extract the key. The page may have changed or the link is invalid.");
+    console.error("Bypass failed:", err.name, err.message);
+
+    // ----- RED EMBED – Failure -----
+    const failEmbed = new EmbedBuilder()
+      .setColor(0xe74c3c) // red
+      .setTitle("❌ Bypass Failed")
+      .setDescription("The page may have changed or the link is invalid.")
+      .setFooter({ text: "Platoboost Bypass Bot" })
+      .setTimestamp();
+
+    await statusMsg.edit({ embeds: [failEmbed] });
   } finally {
     isProcessing = false;
   }
 });
 
-// --------------- Slash Command Handler ---------------
+// --------------- `/set_channel` Handler ---------------
 client.on("interactionCreate", async (interaction) => {
   if (!interaction.isChatInputCommand()) return;
-
   if (interaction.commandName === "set_channel") {
     const channel = interaction.options.getChannel("channel");
     ALLOWED_CHANNEL_ID = channel.id;
-
     fs.writeFileSync(CHANNEL_FILE, channel.id, "utf8");
-    await interaction.reply({
-      content: `✅ Bot will now only respond in ${channel}.`,
-      ephemeral: true,
-    });
+    await interaction.reply({ content: `✅ Bot will now only respond in ${channel}.`, ephemeral: true });
   }
 });
 
-// --------------- Ready Event ---------------
+// --------------- Ready ---------------
 client.once("ready", () => {
   console.log(`🤖 Logged in as ${client.user.tag}`);
 });
 
-// --------------- Start the Bot ---------------
 client.login(TOKEN);
