@@ -1,7 +1,6 @@
 // ========================================================
 //  Platoboost Discord Bot – auto-bypass & key delivery
 // ========================================================
-require("dotenv").config();
 const { Client, GatewayIntentBits, REST, Routes, SlashCommandBuilder } = require("discord.js");
 const express = require("express");
 const puppeteer = require("puppeteer-extra");
@@ -12,15 +11,13 @@ const fs = require("fs");
 puppeteer.use(StealthPlugin());
 
 // --------------- Configuration ---------------
-const TOKEN = process.env.DISCORD_TOKEN;          // Bot token
-const CLIENT_ID = process.env.CLIENT_ID;          // Bot's application ID
+const TOKEN = process.env.DISCORD_TOKEN;
+const CLIENT_ID = process.env.CLIENT_ID;
 const PORT = process.env.PORT || 3000;
 
-// Channel restriction (stored in file to survive restarts on Render's ephemeral disk)
 let ALLOWED_CHANNEL_ID = null;
 const CHANNEL_FILE = "channel.txt";
 
-// Load saved channel if exists
 if (fs.existsSync(CHANNEL_FILE)) {
   ALLOWED_CHANNEL_ID = fs.readFileSync(CHANNEL_FILE, "utf8").trim();
   console.log(`Loaded allowed channel ID: ${ALLOWED_CHANNEL_ID}`);
@@ -50,7 +47,7 @@ const commands = [
         .setDescription("The channel to allow")
         .setRequired(true)
     )
-    .setDefaultMemberPermissions(0), // Only admins can use
+    .setDefaultMemberPermissions(0),
 ];
 
 const rest = new REST({ version: "10" }).setToken(TOKEN);
@@ -58,9 +55,7 @@ const rest = new REST({ version: "10" }).setToken(TOKEN);
 (async () => {
   try {
     console.log("Registering slash commands...");
-    await rest.put(Routes.applicationCommands(CLIENT_ID), {
-      body: commands,
-    });
+    await rest.put(Routes.applicationCommands(CLIENT_ID), { body: commands });
     console.log("Slash commands registered.");
   } catch (err) {
     console.error("Failed to register commands:", err);
@@ -78,7 +73,6 @@ async function bypassPlatoboost(page) {
       await page.goto(newUrl, { waitUntil: "networkidle2", timeout: 30000 });
     }
 
-    // Remove hidden popup
     await page.evaluate(() => {
       const el = document.getElementById("dontfoid");
       if (el) el.remove();
@@ -159,18 +153,14 @@ async function fetchKeyFromLink(link) {
 let isProcessing = false;
 
 client.on("messageCreate", async (message) => {
-  // Ignore bots and empty messages
   if (message.author.bot || !message.content) return;
 
-  // Check channel restriction
   if (ALLOWED_CHANNEL_ID && message.channel.id !== ALLOWED_CHANNEL_ID) return;
 
-  // Match Platoboost links (auth.platorelay.com/a?d=...)
   const linkRegex = /https?:\/\/auth\.platorelay\.com\/a\?d=[^\s]+/gi;
   const links = message.content.match(linkRegex);
   if (!links || links.length === 0) return;
 
-  // Avoid duplicates while a bypass is running
   if (isProcessing) {
     return message.reply("⏳ A bypass is already in progress, please wait.");
   }
@@ -179,8 +169,7 @@ client.on("messageCreate", async (message) => {
   const statusMsg = await message.reply("🔍 Bypassing Platoboost...");
 
   try {
-    const key = await fetchKeyFromLink(links[0]); // Process the first link
-    // Send the key in the same channel
+    const key = await fetchKeyFromLink(links[0]);
     await message.channel.send(`🎉 **Your Key:** \`\`\`${key}\`\`\``);
     await statusMsg.delete().catch(() => {});
   } catch (err) {
@@ -196,11 +185,9 @@ client.on("interactionCreate", async (interaction) => {
   if (!interaction.isChatInputCommand()) return;
 
   if (interaction.commandName === "set_channel") {
-    // Only admins can use (already set in command builder)
     const channel = interaction.options.getChannel("channel");
     ALLOWED_CHANNEL_ID = channel.id;
 
-    // Save to file (persist across restarts on Render's ephemeral disk)
     fs.writeFileSync(CHANNEL_FILE, channel.id, "utf8");
     await interaction.reply({
       content: `✅ Bot will now only respond in ${channel}.`,
