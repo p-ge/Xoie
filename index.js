@@ -12,6 +12,7 @@ const ALLOWED_CHANNEL_ID = "1503812507582730321"; // #bypass-link channel
 // ------------------------------------------
 
 const TOKEN = process.env.DISCORD_TOKEN;  // Set on Render
+console.log("DISCORD_TOKEN exists:", !!TOKEN, "length:", TOKEN ? TOKEN.length : 0);
 const PORT = process.env.PORT || 3000;
 
 // --------------- Discord Client Setup ---------------
@@ -122,7 +123,6 @@ async function fetchKeyFromLink(link) {
 let isProcessing = false;
 
 client.on("messageCreate", async (message) => {
-  // Ignore bots, empty messages, other servers, other channels
   if (message.author.bot || !message.content) return;
   if (message.guildId !== ALLOWED_GUILD_ID) return;
   if (message.channelId !== ALLOWED_CHANNEL_ID) return;
@@ -136,9 +136,8 @@ client.on("messageCreate", async (message) => {
   }
   isProcessing = true;
 
-  // Yellow embed – "Bypassing..."
   const statusEmbed = new EmbedBuilder()
-    .setColor(0xf1c40f) // yellow
+    .setColor(0xf1c40f)
     .setTitle("🔍 Bypassing Platoboost...")
     .setDescription("Attempting to extract the key. Please wait.")
     .setFooter({ text: "Platoboost Bypass Bot" })
@@ -149,21 +148,12 @@ client.on("messageCreate", async (message) => {
   try {
     const key = await fetchKeyFromLink(links[0]);
 
-    // Green embed – "Done Bypass"
     const successEmbed = new EmbedBuilder()
-      .setColor(0x2ecc71) // green
+      .setColor(0x2ecc71)
       .setTitle("✅ Done Bypass")
       .addFields(
-        {
-          name: "📱 Mobile Copy",
-          value: `\`\`${key}\`\``,
-          inline: false,
-        },
-        {
-          name: "💻 PC Copy",
-          value: `\`\`\`${key}\`\`\``,
-          inline: false,
-        }
+        { name: "📱 Mobile Copy", value: `\`\`${key}\`\``, inline: false },
+        { name: "💻 PC Copy", value: `\`\`\`${key}\`\`\``, inline: false }
       )
       .setFooter({ text: "Platoboost Bypass Bot" })
       .setTimestamp();
@@ -171,9 +161,8 @@ client.on("messageCreate", async (message) => {
     await statusMsg.edit({ embeds: [successEmbed] });
   } catch (err) {
     console.error("Bypass failed:", err);
-
     const failEmbed = new EmbedBuilder()
-      .setColor(0xe74c3c) // red
+      .setColor(0xe74c3c)
       .setTitle("❌ Bypass Failed")
       .setDescription("The page may have changed or the link is invalid.")
       .setFooter({ text: "Platoboost Bypass Bot" })
@@ -185,7 +174,6 @@ client.on("messageCreate", async (message) => {
   }
 });
 
-// --------------- Ready ---------------
 client.once("ready", () => {
   console.log(`🤖 Logged in as ${client.user.tag}`);
   console.log(`Locked to guild ${ALLOWED_GUILD_ID}, channel ${ALLOWED_CHANNEL_ID}`);
